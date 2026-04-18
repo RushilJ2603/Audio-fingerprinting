@@ -1,0 +1,8 @@
+../Core/Src/shazam.c:81:13:precompute_hanning	16	static
+../Core/Src/shazam.c:93:13:extract_peaks	48	static
+../Core/Src/shazam.c:127:24:frame_to_ms	24	static
+../Core/Src/shazam.c:137:13:hash_and_match	80	static
+../Core/Src/shazam.c:202:6:shazam_init	8	static
+../Core/Src/shazam.c:209:6:shazam_reset	8	static
+../Core/Src/shazam.c:216:6:shazam_process_audio	32	static
+../Core/Src/shazam.c:270:13:shazam_identify	48	static

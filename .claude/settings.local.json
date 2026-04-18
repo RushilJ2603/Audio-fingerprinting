@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cp C:/Users/jishu/STM32Cube/Repository/STM32Cube_FW_F4_V1.28.3/Drivers/CMSIS/DSP/Source/FastMathFunctions/arm_cos_f32.c c:/Users/jishu/Desktop/dsp/hardware_project/stm32_blinky/stm32_blinky/Core/Src/)",
+      "Bash(cp C:/Users/jishu/STM32Cube/Repository/STM32Cube_FW_F4_V1.28.3/Drivers/CMSIS/DSP/Source/FastMathFunctions/arm_sin_f32.c c:/Users/jishu/Desktop/dsp/hardware_project/stm32_blinky/stm32_blinky/Core/Src/)",
+      "Bash(cp C:/Users/jishu/STM32Cube/Repository/STM32Cube_FW_F4_V1.28.3/Drivers/CMSIS/DSP/Source/StatisticsFunctions/arm_max_f32.c c:/Users/jishu/Desktop/dsp/hardware_project/stm32_blinky/stm32_blinky/Core/Src/)",
+      "Bash(cp C:/Users/jishu/STM32Cube/Repository/STM32Cube_FW_F4_V1.28.3/Drivers/CMSIS/DSP/Source/BasicMathFunctions/arm_mult_f32.c c:/Users/jishu/Desktop/dsp/hardware_project/stm32_blinky/stm32_blinky/Core/Src/)",
+      "Bash(cp C:/Users/jishu/STM32Cube/Repository/STM32Cube_FW_F4_V1.28.3/Drivers/CMSIS/DSP/Source/ComplexMathFunctions/arm_cmplx_mag_f32.c c:/Users/jishu/Desktop/dsp/hardware_project/stm32_blinky/stm32_blinky/Core/Src/)",
+      "Bash(where pyocd *)",
+      "Bash(where customtkinter *)",
+      "Bash(pip show *)"
+    ]
+  }
+}
