@@ -263,6 +263,21 @@ You should see lines like:
 shazam: song=1 offset=1000ms votes=21 confidence=0.525
 ```
 
+### 7.3 Python Desktop GUI (shazam_monitor.py)
+
+Instead of the CubeIDE console, you can run a custom graphical interface that reads the ITM stream.
+This script uses `pyocd` to connect to the ST-Link and extract SWV data over a local TCP socket, and `customtkinter` to render a modern UI showing the progress and matched song.
+
+**Setup**:
+```bash
+pip install pyocd customtkinter
+```
+
+**Usage**:
+1. IMPORTANT: Close the CubeIDE debug session first (only one process can claim the ST-Link).
+2. Run `python shazam_monitor.py` from the project root.
+3. Press the blue button on the STM32 board. The UI will update in real-time.
+
 ---
 
 ## 8. Bugs that bit us (lessons learned)

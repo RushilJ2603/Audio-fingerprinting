@@ -1,0 +1,14 @@
+/.claude
+/.metadata/
+/.project
+/__pycache__/
+stm32_blinky/stm32_blinky/Debug/
+*.elf
+*.map
+*.list
+*.hex
+*.bin
+*.su
+*.o
+*.d
+*.cyclo

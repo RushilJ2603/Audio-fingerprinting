@@ -1,5 +1,0 @@
-../Core/Src/shazam_data.c:107:13:synthesize_song	64	static
-../Core/Src/shazam_data.c:128:6:shazam_data_init	8	static
-../Core/Src/shazam_data.c:133:14:shazam_data_get_audio	4	static
-../Core/Src/shazam_data.c:134:14:shazam_data_get_audio_len	4	static
-../Core/Src/shazam_data.c:136:14:shazam_data_get_song	16	static
