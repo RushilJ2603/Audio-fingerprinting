@@ -2,323 +2,224 @@
 /**
   ******************************************************************************
   * @file           : main.c
-  * @brief          : Main program body
-  ******************************************************************************
-  * @attention
+  * @brief          : FFT Spectrum Analyzer — STM32F407 Discovery
   *
-  * Copyright (c) 2026 STMicroelectronics.
-  * All rights reserved.
+  * Blue button cycles through four synthesised test signals.  For each press
+  * the board computes a Short-Time Fourier Transform (STFT) using the CMSIS-
+  * DSP arm_rfft_fast_f32 routine and streams the per-frame magnitude spectrum
+  * to the host over SWV / ITM port 0.  The companion fft_monitor.py script
+  * reads those lines and renders a live frequency-spectrum bar chart.
   *
-  * This software is licensed under terms that can be found in the LICENSE file
-  * in the root directory of this software component.
-  * If no LICENSE file comes with this software, it is provided AS-IS.
-  *
+  * SWV protocol (one line per event, parsed by fft_monitor.py):
+  *   BOOT                                  — board ready
+  *   FFT_START sig=<n>                     — starting analysis on signal n
+  *   FFT_FRAME <frame> <b0> … <b63>        — 64 uint8 magnitude bins
+  *   FFT_DONE sig=<n>                      — all frames transmitted
   ******************************************************************************
   */
 /* USER CODE END Header */
-/* Includes ------------------------------------------------------------------*/
+
 #include "main.h"
 
-/* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "shazam.h"
+#include "shazam.h"   /* fft_analyzer_init / fft_analyzer_run / fft_data_* */
 /* USER CODE END Includes */
-
-/* Private typedef -----------------------------------------------------------*/
-/* USER CODE BEGIN PTD */
-
-/* USER CODE END PTD */
-
-/* Private define ------------------------------------------------------------*/
-/* USER CODE BEGIN PD */
-
-/* USER CODE END PD */
-
-/* Private macro -------------------------------------------------------------*/
-/* USER CODE BEGIN PM */
-
-/* USER CODE END PM */
-
-/* Private variables ---------------------------------------------------------*/
-
-/* USER CODE BEGIN PV */
-
-/* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
-/* USER CODE BEGIN PFP */
 
-/* USER CODE END PFP */
-
-/* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 #include <stdio.h>
 
-/* Flag set by the EXTI0 ISR on each button press.  Main loop polls & clears. */
+/* Set by the EXTI0 ISR on every blue-button press. Polled & cleared in main. */
 static volatile uint8_t g_button_pressed = 0;
-
-static MatchResult g_result;
 /* USER CODE END 0 */
 
 /**
-  * @brief  The application entry point.
-  * @retval int
+  * @brief  Application entry point.
   */
 int main(void)
 {
-
   /* USER CODE BEGIN 1 */
-
   /* USER CODE END 1 */
 
-  /* MCU Configuration--------------------------------------------------------*/
-
-  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
   HAL_Init();
 
   /* USER CODE BEGIN Init */
-
   /* USER CODE END Init */
 
-  /* Configure the system clock */
   SystemClock_Config();
 
   /* USER CODE BEGIN SysInit */
-
   /* USER CODE END SysInit */
 
-  /* Initialize all configured peripherals */
   MX_GPIO_Init();
-  /* USER CODE BEGIN 2 */
-  shazam_data_init();
-  shazam_init();
 
-  /* All LEDs off at start. */
+  /* USER CODE BEGIN 2 */
+
+  /* Initialise FFT instance and pre-compute Hanning window. */
+  fft_analyzer_init();
+
+  /* Pre-synthesise signal 0 so the first button press feels instant. */
+  fft_data_init();
+
+  /* All LEDs off at startup. */
   HAL_GPIO_WritePin(GPIOD,
-      LED_GREEN_Pin|LED_ORANGE_Pin|LED_RED_Pin|LED_BLUE_Pin, GPIO_PIN_RESET);
+      LED_GREEN_Pin | LED_ORANGE_Pin | LED_RED_Pin | LED_BLUE_Pin,
+      GPIO_PIN_RESET);
 
   printf("BOOT\n");
 
-  uint8_t song_idx = 0;
+  uint8_t sig_idx = 0;   /* cycles 0 -> 1 -> 2 -> 3 -> 0 on each press */
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    /* ------------------------------------------------------------------
-     * STATE 1 — WAIT.  Pulse the blue LED (400 ms on / 400 ms off) until
-     * the user presses the blue button.  The poll is broken into 10 ms
-     * sleeps so the transition feels instant instead of having to finish
-     * a full 400 ms blink.
-     * ------------------------------------------------------------------ */
+    /* ----------------------------------------------------------------
+     * STATE 1 — WAIT
+     * Pulse the blue LED (400 ms period, 10 ms poll) until the user
+     * presses the blue button.
+     * ---------------------------------------------------------------- */
     while (!g_button_pressed) {
-        HAL_GPIO_TogglePin(LED_BLUE_GPIO_Port, LED_BLUE_Pin);
-        for (int i = 0; i < 40 && !g_button_pressed; i++) {
-            HAL_Delay(10);
-        }
+      HAL_GPIO_TogglePin(LED_BLUE_GPIO_Port, LED_BLUE_Pin);
+      for (int i = 0; i < 40 && !g_button_pressed; i++) {
+        HAL_Delay(10);
+      }
     }
     g_button_pressed = 0;
     HAL_GPIO_WritePin(LED_BLUE_GPIO_Port, LED_BLUE_Pin, GPIO_PIN_RESET);
 
-    /* Advance the cycle on every press: 0 -> 1 -> 2 -> 0 -> ... */
-    song_idx = (song_idx + 1) % SHAZAM_NUM_SONGS;
+    /* Advance the signal index on every press. */
+    sig_idx = (sig_idx + 1) % NUM_TEST_SIGNALS;
 
-    /* ------------------------------------------------------------------
-     * STATE 2 — PROCESS.  Announce to the Python UI, then run the full
-     * STFT + hash + match pipeline.  The rotating green/orange/red/blue
-     * "working" LEDs come from inside shazam_process_audio (one LED per
-     * FFT frame) so the board visibly isn't frozen.
-     * ------------------------------------------------------------------ */
-    printf("PROCESSING %d\n", song_idx);
+    /* ----------------------------------------------------------------
+     * STATE 2 — COMPUTE & STREAM
+     * Announce the signal, run the STFT, stream FFT_FRAME lines.
+     * The LED spinner inside fft_analyzer_run() shows progress.
+     * ---------------------------------------------------------------- */
+    printf("FFT_START sig=%u\n", (unsigned)sig_idx);
 
-    shazam_reset();
-    shazam_process_audio(shazam_data_get_song(song_idx),
-                         shazam_data_get_audio_len());
-    g_result = shazam_identify();
+    fft_analyzer_run(sig_idx);
 
-    /* ------------------------------------------------------------------
-     * STATE 3 — RESULT.  Emit the parseable line for the Python UI,
-     * then blink the red LED to reflect the verdict.
-     * ------------------------------------------------------------------ */
-    printf("RESULT idx=%d song=%lu votes=%u conf=%.3f\n",
-           song_idx,
-           (unsigned long)g_result.song_id,
-           (unsigned)g_result.match_count,
-           (double)g_result.confidence);
+    printf("FFT_DONE sig=%u\n", (unsigned)sig_idx);
 
-    if (g_result.match_count > 0 && g_result.song_id == 1) {
-        /* Strong match on DB song 1 (audio idx 0) — 5 fast GREEN flashes. */
-        for (int i = 0; i < 5; i++) {
-            HAL_GPIO_WritePin(LED_GREEN_GPIO_Port, LED_GREEN_Pin, GPIO_PIN_SET);
-            HAL_Delay(80);
-            HAL_GPIO_WritePin(LED_GREEN_GPIO_Port, LED_GREEN_Pin, GPIO_PIN_RESET);
-            HAL_Delay(80);
-        }
-    } else if (g_result.match_count > 0) {
-        /* Match on any other song (e.g. DB song 2 / audio idx 2) — 2 slow
-         * GREEN flashes.  Song ID distinction is readable in the Python UI. */
-        for (int i = 0; i < 2; i++) {
-            HAL_GPIO_WritePin(LED_GREEN_GPIO_Port, LED_GREEN_Pin, GPIO_PIN_SET);
-            HAL_Delay(300);
-            HAL_GPIO_WritePin(LED_GREEN_GPIO_Port, LED_GREEN_Pin, GPIO_PIN_RESET);
-            HAL_Delay(300);
-        }
-    } else {
-        /* No match — one long RED pulse. */
-        HAL_GPIO_WritePin(LED_RED_GPIO_Port, LED_RED_Pin, GPIO_PIN_SET);
-        HAL_Delay(1000);
-        HAL_GPIO_WritePin(LED_RED_GPIO_Port, LED_RED_Pin, GPIO_PIN_RESET);
+    /* ----------------------------------------------------------------
+     * STATE 3 — RESULT FLASH
+     * Brief LED burst so the user knows the run finished.
+     *   sig 0 / 2 — green  (even-indexed signals)
+     *   sig 1 / 3 — orange (odd-indexed signals)
+     * ---------------------------------------------------------------- */
+    uint16_t flash_pin = (sig_idx & 1u) ? LED_ORANGE_Pin : LED_GREEN_Pin;
+    GPIO_TypeDef *flash_port = GPIOD;
+
+    for (int i = 0; i < 3; i++) {
+      HAL_GPIO_WritePin(flash_port, flash_pin, GPIO_PIN_SET);
+      HAL_Delay(120);
+      HAL_GPIO_WritePin(flash_port, flash_pin, GPIO_PIN_RESET);
+      HAL_Delay(80);
     }
 
-    /* Drop any button press that queued up during processing so we go
-     * cleanly back into the WAIT pulse instead of re-triggering. */
+    /* Discard any button press that arrived during computation so we
+     * return cleanly to the wait-pulse state. */
     g_button_pressed = 0;
 
-    /* Fall through to the top of the outer while(1) — state machine
-     * returns to STATE 1 (blue LED pulse, waiting for next press). */
     /* USER CODE END WHILE */
-
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
 }
 
-
 /**
-  * @brief System Clock Configuration
-  * @retval None
+  * @brief System Clock Configuration — 16 MHz HSI, no PLL.
   */
 void SystemClock_Config(void)
 {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
 
-  /** Configure the main internal regulator output voltage
-  */
   __HAL_RCC_PWR_CLK_ENABLE();
   __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
 
-  /** Initializes the RCC Oscillators according to the specified parameters
-  * in the RCC_OscInitTypeDef structure.
-  */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
-  RCC_OscInitStruct.HSIState = RCC_HSI_ON;
+  RCC_OscInitStruct.OscillatorType      = RCC_OSCILLATORTYPE_HSI;
+  RCC_OscInitStruct.HSIState            = RCC_HSI_ON;
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
-  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_NONE;
-  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
-  {
-    Error_Handler();
-  }
+  RCC_OscInitStruct.PLL.PLLState        = RCC_PLL_NONE;
+  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK) Error_Handler();
 
-  /** Initializes the CPU, AHB and APB buses clocks
-  */
-  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
-                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
-  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_HSI;
-  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
+  RCC_ClkInitStruct.ClockType      = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK
+                                   | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
+  RCC_ClkInitStruct.SYSCLKSource   = RCC_SYSCLKSOURCE_HSI;
+  RCC_ClkInitStruct.AHBCLKDivider  = RCC_SYSCLK_DIV1;
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
-
   if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0) != HAL_OK)
-  {
     Error_Handler();
-  }
 }
 
 /**
-  * @brief GPIO Initialization Function
-  * @param None
-  * @retval None
+  * @brief GPIO Initialisation — LEDs (PD12-15) + user button (PA0, EXTI0).
   */
 static void MX_GPIO_Init(void)
 {
   GPIO_InitTypeDef GPIO_InitStruct = {0};
-  /* USER CODE BEGIN MX_GPIO_Init_1 */
 
-  /* USER CODE END MX_GPIO_Init_1 */
-
-  /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOD_CLK_ENABLE();
-  __HAL_RCC_GPIOB_CLK_ENABLE();
 
-  /*Configure GPIO pin Output Level */
+  /* LEDs default low */
   HAL_GPIO_WritePin(GPIOD,
-    LED_GREEN_Pin|LED_ORANGE_Pin|LED_RED_Pin|LED_BLUE_Pin, GPIO_PIN_RESET);
+      LED_GREEN_Pin | LED_ORANGE_Pin | LED_RED_Pin | LED_BLUE_Pin,
+      GPIO_PIN_RESET);
 
-  /*Configure GPIO pin : USER_BTN_Pin  (EXTI rising edge, pull-down) */
+  /* PA0 — USER button, rising edge, pull-down */
   GPIO_InitStruct.Pin  = USER_BTN_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
   GPIO_InitStruct.Pull = GPIO_PULLDOWN;
   HAL_GPIO_Init(USER_BTN_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : PD12..PD15 LEDs */
-  GPIO_InitStruct.Pin   = LED_GREEN_Pin|LED_ORANGE_Pin|LED_RED_Pin|LED_BLUE_Pin;
+  /* PD12-15 — four LEDs, push-pull output */
+  GPIO_InitStruct.Pin   = LED_GREEN_Pin | LED_ORANGE_Pin | LED_RED_Pin | LED_BLUE_Pin;
   GPIO_InitStruct.Mode  = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull  = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
 
-  /* EXTI0 NVIC enable */
   HAL_NVIC_SetPriority(EXTI0_IRQn, 2, 0);
   HAL_NVIC_EnableIRQ(EXTI0_IRQn);
-
-  /* USER CODE BEGIN MX_GPIO_Init_2 */
-
-  /* USER CODE END MX_GPIO_Init_2 */
 }
 
 /* USER CODE BEGIN 4 */
-/* Button ISR: just flag the main loop.  50 ms debounce filters contact
- * bounce; the main loop handles the actual song-index cycling. */
+
+/* Button ISR — 50 ms debounce, flags main loop. */
 void HAL_GPIO_EXTI_Callback(uint16_t pin)
 {
-    static uint32_t last_tick = 0;
-    if (pin != USER_BTN_Pin) return;
-    uint32_t now = HAL_GetTick();
-    if (now - last_tick < 50) return;
-    last_tick = now;
-    g_button_pressed = 1;
+  static uint32_t last_tick = 0;
+  if (pin != USER_BTN_Pin) return;
+  uint32_t now = HAL_GetTick();
+  if (now - last_tick < 50) return;
+  last_tick = now;
+  g_button_pressed = 1;
 }
 
-/* printf redirect: goes out on SWO/ITM, read by pyocd's SWV stream. */
+/* Route printf -> SWO/ITM port 0, read by pyocd's SWV stream. */
 int __io_putchar(int ch)
 {
-    ITM_SendChar((uint32_t)(uint8_t)ch);
-    return ch;
+  ITM_SendChar((uint32_t)(uint8_t)ch);
+  return ch;
 }
+
 /* USER CODE END 4 */
 
-/**
-  * @brief  This function is executed in case of error occurrence.
-  * @retval None
-  */
 void Error_Handler(void)
 {
-  /* USER CODE BEGIN Error_Handler_Debug */
-  /* User can add his own implementation to report the HAL error return state */
   __disable_irq();
-  while (1)
-  {
-  }
-  /* USER CODE END Error_Handler_Debug */
+  while (1) {}
 }
+
 #ifdef USE_FULL_ASSERT
-/**
-  * @brief  Reports the name of the source file and the source line number
-  *         where the assert_param error has occurred.
-  * @param  file: pointer to the source file name
-  * @param  line: assert_param error line source number
-  * @retval None
-  */
-void assert_failed(uint8_t *file, uint32_t line)
-{
-  /* USER CODE BEGIN 6 */
-  /* User can add his own implementation to report the file name and line number,
-     ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
-  /* USER CODE END 6 */
-}
-#endif /* USE_FULL_ASSERT */
+void assert_failed(uint8_t *file, uint32_t line) {}
+#endif
